@@ -71,7 +71,7 @@ setup(
     install_requires=[
         'multiprocess>=0.70.5',
         'psutil>=5.4.2',
-        'pycrypto>=2.6.1',
+        'pycryptodome>=3.9.0',
         'pandas>=0.22.0',
         'dateparser>=0.6.0',
         'requests>=2.19.1'
