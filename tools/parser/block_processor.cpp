@@ -499,7 +499,7 @@ struct NextQueueFinishedEarlyException : public std::runtime_error {
 /* Single-producer/single-consumer fifo queues, pushing and popping is wait-free
  * size of the ringbuffer is specified by boost::lockfree::capacity<>
  */
-using TxQueue = boost::lockfree::spsc_queue<RawTransaction *, boost::lockfree::capacity<10000>>;
+using TxQueue = boost::lockfree::spsc_queue<RawTransaction *, boost::lockfree::capacity<50000>>;
 
 using DiscardCheckFunc = std::function<bool(RawTransaction &)>;
 

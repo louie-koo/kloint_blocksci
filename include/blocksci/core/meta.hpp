@@ -10,6 +10,7 @@
 
 #include <array>
 #include <tuple>
+#include <cstddef>
 
 namespace blocksci {
     namespace internal {

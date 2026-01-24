@@ -93,6 +93,26 @@ if(HAS_CLASS_MEMACCESS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=class-memaccess")
 endif()
 
+check_cxx_compiler_flag(-Wrange-loop-construct HAS_RANGE_LOOP_CONSTRUCT)
+if(HAS_RANGE_LOOP_CONSTRUCT)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=range-loop-construct")
+endif()
+
+check_cxx_compiler_flag(-Wunused-but-set-variable HAS_UNUSED_BUT_SET_VARIABLE)
+if(HAS_UNUSED_BUT_SET_VARIABLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=unused-but-set-variable")
+endif()
+
+check_cxx_compiler_flag(-Wdeprecated-copy HAS_DEPRECATED_COPY)
+if(HAS_DEPRECATED_COPY)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-copy")
+endif()
+
+check_cxx_compiler_flag(-Wdeprecated-builtins HAS_DEPRECATED_BUILTINS)
+if(HAS_DEPRECATED_BUILTINS)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-builtins")
+endif()
+
 option(WITH_TESTS "" OFF)
 option(WITH_TOOLS "" OFF)
 option(WITH_GFLAGS "" OFF)

@@ -15,6 +15,7 @@
 
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 namespace blocksci {
     class uint160;

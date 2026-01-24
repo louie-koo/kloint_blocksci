@@ -21,6 +21,7 @@
 #include "address_writer.hpp"
 #include "utxo_address_state.hpp"
 #include "doctor.hpp"
+#include "file_writer.hpp"
 
 #include <internal/bitcoin_uint256_hex.hpp>
 #include <internal/data_configuration.hpp>
@@ -84,7 +85,7 @@ struct ChainUpdateInfo {
 };
 
 template <typename ParserTag>
-std::vector<blocksci::RawBlock> updateChain(const ParserConfiguration<ParserTag> &config, blocksci::BlockHeight maxBlockNum, HashIndexCreator &hashDb) {
+void updateChain(const ParserConfiguration<ParserTag> &config, blocksci::BlockHeight maxBlockNum, HashIndexCreator &hashDb) {
     using namespace std::chrono_literals;
 
     /* Load and update the persisted (serialized) ChainIndex object that contains information about all blocks (without transaction data)
@@ -92,24 +93,24 @@ std::vector<blocksci::RawBlock> updateChain(const ParserConfiguration<ParserTag>
      *
      * This step represents the "xx.x% done fetching block headers" step of the parser output messages.
      */
+    ChainIndex<ParserTag> chainIndex;
     auto chainBlocks = [&]() {
-        ChainIndex<ParserTag> index;
         std::ifstream inFile(config.blockListPath().str(), std::ios::binary);
         if (inFile.good()) {
             try {
                 cereal::BinaryInputArchive ia(inFile);
-                ia(index);
+                ia(chainIndex);
             } catch (const std::exception &) {
                 std::cout << "Error loading chain index. Reparsing from scratch\n";
-                index = ChainIndex<ParserTag>{};
+                chainIndex = ChainIndex<ParserTag>{};
             }
         }
-        
-        index.update(config, maxBlockNum);
-        auto blocks = index.generateChain(maxBlockNum);
+
+        chainIndex.update(config, maxBlockNum);
+        auto blocks = chainIndex.generateChain(maxBlockNum);
         std::ofstream of(config.blockListPath().str(), std::ios::binary);
         cereal::BinaryOutputArchive oa(of);
-        oa(index);
+        oa(chainIndex);
         return blocks;
     }();
 
@@ -146,7 +147,7 @@ std::vector<blocksci::RawBlock> updateChain(const ParserConfiguration<ParserTag>
     std::ios::sync_with_stdio(false);
     
     if (blocksToAdd.size() == 0) {
-        return {};  // No new blocks since the last update
+        return;  // No new blocks since the last update
     }
     
     uint32_t startingTxCount;
@@ -179,8 +180,10 @@ std::vector<blocksci::RawBlock> updateChain(const ParserConfiguration<ParserTag>
     utxoAddressState.unserialize(config.utxoAddressStatePath().str());
     utxoState.unserialize(config.utxoCacheFile().str());
     utxoScriptState.unserialize(config.utxoScriptStatePath().str());
-    
-    std::vector<blocksci::RawBlock> newBlocks;
+
+    // Open block file once, write incrementally after each batch
+    FixedSizeFileWriter<blocksci::RawBlock> blockFile{blocksci::ChainAccess::blockFilePath(config.dataConfig.chainDirectory())};
+
     auto it = blocksToAdd.begin();
     auto end = blocksToAdd.end();
     while (it != end) {
@@ -188,26 +191,38 @@ std::vector<blocksci::RawBlock> updateChain(const ParserConfiguration<ParserTag>
         uint32_t newTxCount = 0;
 
         // Process only as many blocks such that ~10,000,000 transactions are added in one BlockProcessor.addNewBlocks() call
-        while (newTxCount < 10000000 && it != end) {
+        while (newTxCount < 50000000 && it != end) {
             newTxCount += it->nTx;
             ++it;
         }
-        
+
         decltype(blocksToAdd) nextBlocks{prev, it};
 
         auto blocks = processor.addNewBlocks(config, nextBlocks, utxoState, utxoAddressState, addressState, utxoScriptState);
 
-        // Add all just processed blocks to newBlocks as RawBlock. The blocks are in turn written to blockFile in the calling (parent) function
-        newBlocks.insert(newBlocks.end(), blocks.begin(), blocks.end());
+        // Write blocks immediately after batch processing (checkpoint)
+        for (auto &block : blocks) {
+            blockFile.write(block);
+        }
+        blockFile.flush();
 
         // This step represents the "Back linking transactions" step of the parser output messages.
         backUpdateTxes(config);
+
+        // Serialize state after each batch (checkpoint)
+        utxoAddressState.serialize(config.utxoAddressStatePath().str());
+        utxoState.serialize(config.utxoCacheFile().str());
+        utxoScriptState.serialize(config.utxoScriptStatePath().str());
+
+        // Save ChainIndex after each batch
+        {
+            std::ofstream of(config.blockListPath().str(), std::ios::binary);
+            cereal::BinaryOutputArchive oa(of);
+            oa(chainIndex);
+        }
+
+        std::cout << "Checkpoint saved at block " << blocks.back().height << std::endl;
     }
-    
-    utxoAddressState.serialize(config.utxoAddressStatePath().str());
-    utxoState.serialize(config.utxoCacheFile().str());
-    utxoScriptState.serialize(config.utxoScriptStatePath().str());
-    return newBlocks;
 }
 
 void updateHashDB(const ParserConfigurationBase &config, HashIndexCreator &db) {
@@ -242,38 +257,29 @@ ParserConfigurationBase getBaseConfig(const filesystem::path &configPath) {
 void updateChain(const filesystem::path &configFilePath, bool fullParse) {
     auto jsonConf = blocksci::loadConfig(configFilePath.str());
     blocksci::checkVersion(jsonConf);
-    
+
     blocksci::ChainConfiguration chainConfig = jsonConf.at("chainConfig");
     blocksci::DataConfiguration dataConfig{configFilePath.str(), chainConfig, true, 0};
-    
+
     ParserConfigurationBase config{dataConfig};
     HashIndexCreator hashDb(config, config.dataConfig.hashIndexFilePath());
-    
+
     auto parserConf = jsonConf.at("parser");
     blocksci::BlockHeight maxBlock = parserConf.at("maxBlockNum");
-    
-    std::vector<blocksci::RawBlock> newBlocks;
+
+    // Blocks are now written incrementally inside updateChain<ParserTag>()
     if (parserConf.find("disk") != parserConf.end()) {
         ChainDiskConfiguration diskConfig = parserConf.at("disk");
-        ParserConfiguration<FileTag> config{dataConfig, diskConfig};
-        newBlocks = updateChain(config, blocksci::BlockHeight{maxBlock}, hashDb);
+        ParserConfiguration<FileTag> parserConfig{dataConfig, diskConfig};
+        updateChain(parserConfig, blocksci::BlockHeight{maxBlock}, hashDb);
     } else if (parserConf.find("rpc") != parserConf.end()) {
         blocksci::ChainRPCConfiguration rpcConfig = parserConf.at("rpc");
-        ParserConfiguration<RPCTag> config(dataConfig, rpcConfig);
-        newBlocks = updateChain(config, blocksci::BlockHeight{maxBlock}, hashDb);
+        ParserConfiguration<RPCTag> parserConfig(dataConfig, rpcConfig);
+        updateChain(parserConfig, blocksci::BlockHeight{maxBlock}, hashDb);
     } else {
         throw std::runtime_error("Must provide either rpc or disk parsing settings");
     }
-    
-    // It'd be nice to do this after the indexes are updated, but they currently depend on the chain being fully updated
-    {
-        // Write new RawBlock blocks from the updateChain() method to the blockFile
-        FixedSizeFileWriter<blocksci::RawBlock> blockFile{blocksci::ChainAccess::blockFilePath(config.dataConfig.chainDirectory())};
-        for (auto &block : newBlocks) {
-            blockFile.write(block);
-        }
-    }
-    
+
     if (fullParse) {
         updateHashDB(config, hashDb);
         updateAddressDB(config);
