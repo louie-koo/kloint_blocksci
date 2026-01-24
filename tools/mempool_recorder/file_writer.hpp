@@ -11,8 +11,9 @@
 
 #include <wjfilesystem/path.h>
 
-#include <fstream>
 #include <array>
+#include <cstdint>
+#include <fstream>
 
 struct SimpleFileWriter {
 protected:

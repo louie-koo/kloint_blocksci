@@ -38,13 +38,13 @@ struct NonDudupAddressInfo {
 };
 
 template<blocksci::DedupAddressType::Enum>
-constexpr int startingCount = 0;
+inline constexpr int startingCount = 0;
 template<>
-constexpr int startingCount<blocksci::DedupAddressType::PUBKEY> = 600'000'000;
+inline constexpr int startingCount<blocksci::DedupAddressType::PUBKEY> = 600'000'000;
 template<>
-constexpr int startingCount<blocksci::DedupAddressType::SCRIPTHASH> = 100'000'000;
+inline constexpr int startingCount<blocksci::DedupAddressType::SCRIPTHASH> = 100'000'000;
 template<>
-constexpr int startingCount<blocksci::DedupAddressType::MULTISIG> = 100'000'000;
+inline constexpr int startingCount<blocksci::DedupAddressType::MULTISIG> = 100'000'000;
 
 class AddressState {
     static constexpr auto AddressFalsePositiveRate = .05;

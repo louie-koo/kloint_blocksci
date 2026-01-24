@@ -12,6 +12,8 @@
 
 #include <blocksci/core/meta.hpp>
 
+#include <functional>
+
 #define DEDUP_ADDRESS_TYPE_LIST VAL(SCRIPTHASH), VAL(PUBKEY), VAL(MULTISIG), VAL(NULL_DATA), VAL(WITNESS_UNKNOWN), VAL(NONSTANDARD)
 
 namespace blocksci {

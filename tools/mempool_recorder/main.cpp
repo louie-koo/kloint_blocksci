@@ -31,6 +31,7 @@
 #include <iostream>
 #include <future>
 #include <sstream>
+#include <thread>
 #include <unordered_map>
 
 #include <csignal>

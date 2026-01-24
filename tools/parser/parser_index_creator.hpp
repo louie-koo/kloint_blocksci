@@ -12,6 +12,7 @@
 #include "parser_fwd.hpp"
 
 #include <future>
+#include <thread>
 
 namespace blocksci {
     struct State;
@@ -36,8 +37,8 @@ public:
     
     ~ParserIndexCreator() {
         if (!tornDown) {
-            blocksci::ChainAccess chain{config, false, 0};
-            blocksci::ScriptAccess scripts{config};
+            blocksci::ChainAccess chain{config.dataConfig.chainDirectory(), config.dataConfig.blocksIgnored, config.dataConfig.errorOnReorg};
+            blocksci::ScriptAccess scripts{config.dataConfig.scriptsDirectory()};
             blocksci::State updateState{chain, scripts};
             complete(updateState);
         }

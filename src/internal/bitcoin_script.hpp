@@ -7,6 +7,7 @@
 #define BLOCKSCI_BITCOIN_SCRIPT_SCRIPT_H
 
 #include <cassert>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <stdexcept>

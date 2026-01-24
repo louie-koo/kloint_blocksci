@@ -9,6 +9,7 @@
 #include <blocksci/blocksci_export.h>
 
 #include <cassert>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <string>

@@ -22,6 +22,7 @@
 #include <cmath>
 #include <future>
 #include <iostream>
+#include <thread>
 
 #ifdef BLOCKSCI_FILE_PARSER
 
