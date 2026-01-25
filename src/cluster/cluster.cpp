@@ -92,6 +92,21 @@ namespace blocksci {
             });
         }) | ranges::views::join;
     }
+
+    std::vector<Address> Cluster::getAddressVector() const {
+        std::vector<Address> result;
+        DataAccess *access_ = &clusterAccess->access;
+        for (const auto &dedupAddress : getDedupAddresses()) {
+            auto header = access_->getScripts().getScriptHeader(dedupAddress.scriptNum, dedupAddress.type);
+            uint32_t scriptNum = dedupAddress.scriptNum;
+            for (auto type : addressTypesRange(dedupAddress.type)) {
+                if (header->seenTopLevel(type)) {
+                    result.emplace_back(scriptNum, type, *access_);
+                }
+            }
+        }
+        return result;
+    }
     
     bool Cluster::containsAddress(const Address &address) const {
         return clusterAccess->getClusterNum(address) == clusterNum;

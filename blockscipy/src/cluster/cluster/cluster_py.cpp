@@ -23,6 +23,7 @@
 
 #include <pybind11/iostream.h>
 #include <pybind11/operators.h>
+#include <pybind11/stl.h>
 
 namespace py = pybind11;
 using namespace blocksci;
@@ -86,6 +87,14 @@ void init_cluster(py::class_<Cluster> &cl) {
     .def("__hash__", [] (const Cluster &cluster) {
         return cluster.clusterNum;
     })
+    .def_property_readonly("addresses", [](const Cluster &cluster) {
+        // Materialize addresses into Python list to avoid lifetime/dangling pointer issues
+        py::list result;
+        for (const auto &address : cluster.getAddressVector()) {
+            result.append(py::cast(address.getScript()));
+        }
+        return result;
+    }, "Get a list of all the addresses in the cluster")
     .def("txes", &Cluster::getTransactions, "Returns a list of all transactions involving this cluster")
     .def("in_txes", [](Cluster &cluster){
         pybind11::print("Warning: `in_txes` is deprecated. Use `input_txes` instead.");

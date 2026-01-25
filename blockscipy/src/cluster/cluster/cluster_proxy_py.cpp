@@ -14,6 +14,10 @@
 #include "proxy/optional.hpp"
 #include "proxy/range.hpp"
 
+#include <pybind11/stl.h>
+#include <memory>
+#include <vector>
+
 struct AddClusterProxyMethods {
     template <typename FuncApplication>
     void operator()(FuncApplication func) {
@@ -36,11 +40,8 @@ struct AddClusterProxyMethods {
             return cluster.getInputs();
         }, "Returns an iterator over all inputs spent from this cluster");
 
-        func(property_tag, "addresses", +[](const Cluster &cluster) -> RawIterator<AnyScript> {
-            return ranges::any_view<AnyScript>{ranges::views::transform(cluster.getAddresses(), [](Address && address) -> AnyScript {
-                return address.getScript();
-            })};
-        }, "Get a iterable over all the addresses in the cluster");
+        // Note: 'addresses' property is defined directly on Cluster class in cluster_py.cpp
+        // to avoid proxy system lifetime issues with lazy iterators
     }
 };
 
