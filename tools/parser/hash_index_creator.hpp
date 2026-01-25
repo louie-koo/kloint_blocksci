@@ -19,6 +19,7 @@
 #include <internal/hash_index.hpp>
 
 #include <tuple>
+#include <string>
 
 namespace blocksci {
     class uint256;
@@ -127,13 +128,21 @@ struct HashIndexAddressCache : public HashIndexAddressCacheImpl<std::integral_co
 
 class HashIndexCreator : public ParserIndex<HashIndexCreator> {
     using AddressCacheTuple = blocksci::to_address_tuple_t<HashIndexAddressCache>;
-    
+
     DenseHashMapCache<blocksci::uint256> txCache;
     AddressCacheTuple addressCache;
-    
+    std::string addressTypeFilter;
+
     void clearTxCache();
-    
+
 public:
+    void setAddressTypeFilter(const std::string &filter) {
+        addressTypeFilter = filter;
+    }
+
+    const std::string &getAddressTypeFilter() const {
+        return addressTypeFilter;
+    }
     
     template<blocksci::AddressType::Enum type>
     void clearAddressCache() {

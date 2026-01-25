@@ -37,6 +37,7 @@
 #include <cereal/archives/binary.hpp>
 
 #include <nlohmann/json.hpp>
+#include <cstdio>
 
 #include <sys/resource.h>
 
@@ -225,12 +226,18 @@ void updateChain(const ParserConfiguration<ParserTag> &config, blocksci::BlockHe
     }
 }
 
-void updateHashDB(const ParserConfigurationBase &config, HashIndexCreator &db, uint32_t maxTxCount = 0) {
+void updateHashDB(const ParserConfigurationBase &config, HashIndexCreator &db, uint32_t maxTxCount = 0, const std::string &addressTypeFilter = "") {
     blocksci::ChainAccess chain{config.dataConfig.chainDirectory(), config.dataConfig.blocksIgnored, config.dataConfig.errorOnReorg};
     blocksci::ScriptAccess scripts{config.dataConfig.scriptsDirectory()};
 
     blocksci::State updateState{chain, scripts};
-    std::cout << "Updating hash index\n";
+
+    if (addressTypeFilter.empty()) {
+        std::cout << "Updating hash index (all types)\n";
+    } else {
+        std::cout << "Updating hash index (type: " << addressTypeFilter << ")\n";
+        db.setAddressTypeFilter(addressTypeFilter);
+    }
 
     db.runUpdate(updateState, maxTxCount);
 }
@@ -358,9 +365,11 @@ int main(int argc, char * argv[]) {
     auto indexUpdateCommand = clipp::command("index-update").set(selected,mode::updateIndexes) % "Update indexes to latest chain state";
     auto addressIndexUpdateCommand = clipp::command("address-index-update").set(selected,mode::updateAddressIndex) % "Update address index to latest state";
     uint32_t hashIndexMaxTx = 0;
+    std::string hashIndexAddressType;
     auto hashIndexUpdateCommand = (
         clipp::command("hash-index-update").set(selected,mode::updateHashIndex) % "Update hash index to latest state",
-        (clipp::option("--max-tx") & clipp::value("max tx count", hashIndexMaxTx)) % "Limit number of transactions to process (for testing)"
+        (clipp::option("--max-tx") & clipp::value("max tx count", hashIndexMaxTx)) % "Limit number of transactions to process (for testing)",
+        (clipp::option("--address-type") & clipp::value("type", hashIndexAddressType)) % "Only process specific address type (e.g., WITNESS_PUBKEYHASH, PUBKEYHASH)"
     );
     auto compactIndexesCommand = clipp::command("compact-indexes").set(selected, mode::compactIndexes) % "Compact indexes to speed up blockchain construction";
     auto doctorCommand = clipp::command("doctor").set(selected,mode::doctor) % "Diagnose issues with BlockSci or the provided config file.";
@@ -526,8 +535,16 @@ int main(int argc, char * argv[]) {
         case mode::updateHashIndex: {
             auto config = getBaseConfig(configFilePath);
             lockDataDirectory(config);
+            // When filtering by address type, delete state file to force reprocessing all TXs
+            if (!hashIndexAddressType.empty()) {
+                auto statePath = config.parserDirectory() / "hashIndex.txt";
+                if (statePath.exists()) {
+                    std::cout << "Removing state file to reprocess all transactions for type: " << hashIndexAddressType << "\n";
+                    std::remove(statePath.str().c_str());
+                }
+            }
             HashIndexCreator db(config, config.dataConfig.hashIndexFilePath());
-            updateHashDB(config, db, hashIndexMaxTx);
+            updateHashDB(config, db, hashIndexMaxTx, hashIndexAddressType);
             unlockDataDirectory(config);
             break;
         }
