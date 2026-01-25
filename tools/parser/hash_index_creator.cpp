@@ -11,6 +11,7 @@
 #include "raw_address_visitor.hpp"
 
 #include <blocksci/core/raw_address.hpp>
+#include <internal/hash.hpp>
 
 HashIndexCreator::HashIndexCreator(const ParserConfigurationBase &config_, const filesystem::path &path) : ParserIndex(config_, "hashIndex"), db(path, false) {}
 
@@ -72,12 +73,67 @@ void HashIndexCreator::processTx(const blocksci::RawTransaction *tx, uint32_t tx
         insideP2SH = false;
         visit(blocksci::RawAddress{input.getAddressNum(), input.getType()}, inputVisitFunc, scripts);
     }
-    
+
     auto outputs = ranges::make_subrange(tx->beginOutputs(), tx->endOutputs());
     for (auto &txout : outputs) {
-        if (txout.getType() == blocksci::AddressType::WITNESS_SCRIPTHASH) {
-            auto script = scripts.getScriptData<blocksci::DedupAddressType::SCRIPTHASH>(txout.getAddressNum());
-            addAddress<blocksci::AddressType::WITNESS_SCRIPTHASH>(script->hash256, txout.getAddressNum());
+        auto addressNum = txout.getAddressNum();
+        auto addressType = txout.getType();
+
+        switch (addressType) {
+            case blocksci::AddressType::SCRIPTHASH: {
+                // Add P2SH (3...) addresses to hash index
+                auto script = scripts.getScriptData<blocksci::DedupAddressType::SCRIPTHASH>(addressNum);
+                addAddress<blocksci::AddressType::SCRIPTHASH>(script->hash160, addressNum);
+                break;
+            }
+            case blocksci::AddressType::WITNESS_SCRIPTHASH: {
+                // Add P2WSH addresses to hash index
+                auto script = scripts.getScriptData<blocksci::DedupAddressType::SCRIPTHASH>(addressNum);
+                addAddress<blocksci::AddressType::WITNESS_SCRIPTHASH>(script->hash256, addressNum);
+                break;
+            }
+            case blocksci::AddressType::PUBKEYHASH: {
+                // Add P2PKH (1...) addresses to hash index
+                auto script = scripts.getScriptData<blocksci::DedupAddressType::PUBKEY>(addressNum);
+                blocksci::uint160 pubkeyHash;
+                if (script->hasPubkey) {
+                    // If we have the full pubkey, compute hash160 from it
+                    pubkeyHash = hash160(script->pubkey.begin(), script->pubkey.size());
+                } else {
+                    // Otherwise use the stored address (which is already the hash)
+                    pubkeyHash = script->address;
+                }
+                addAddress<blocksci::AddressType::PUBKEYHASH>(pubkeyHash, addressNum);
+                break;
+            }
+            case blocksci::AddressType::WITNESS_PUBKEYHASH: {
+                // Add P2WPKH (bc1q...) addresses to hash index
+                auto script = scripts.getScriptData<blocksci::DedupAddressType::PUBKEY>(addressNum);
+                blocksci::uint160 pubkeyHash;
+                if (script->hasPubkey) {
+                    // If we have the full pubkey, compute hash160 from it
+                    pubkeyHash = hash160(script->pubkey.begin(), script->pubkey.size());
+                } else {
+                    // Otherwise use the stored address (which is already the hash)
+                    pubkeyHash = script->address;
+                }
+                addAddress<blocksci::AddressType::WITNESS_PUBKEYHASH>(pubkeyHash, addressNum);
+                break;
+            }
+            case blocksci::AddressType::WITNESS_UNKNOWN: {
+                // Add Taproot (bc1p...) addresses to hash index
+                auto scriptTuple = scripts.getScriptData<blocksci::DedupAddressType::WITNESS_UNKNOWN>(addressNum);
+                auto script = std::get<0>(scriptTuple);
+                // Only index Taproot (version 1, 32 bytes)
+                if (script->witnessVersion == 1 && script->scriptData.size() == 32) {
+                    blocksci::uint256 witnessProgram;
+                    memcpy(witnessProgram.begin(), script->scriptData.begin(), 32);
+                    addAddress<blocksci::AddressType::WITNESS_UNKNOWN>(witnessProgram, addressNum);
+                }
+                break;
+            }
+            default:
+                break;
         }
     }
 }

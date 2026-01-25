@@ -149,12 +149,18 @@ namespace blocksci {
             return lookupAddressImpl(type, reinterpret_cast<const char *>(&hash), sizeof(hash));
         }
 
-        /** Get the scriptNum for the given public key hash */
+        /** Get the scriptNum for the given public key hash (P2PKH) */
         ranges::optional<uint32_t> getPubkeyHashIndex(const uint160 &pubkeyhash);
-      
+
+        /** Get the scriptNum for the given witness public key hash (P2WPKH) */
+        ranges::optional<uint32_t> getWitnessPubkeyHashIndex(const uint160 &pubkeyhash);
+
         /** Get the scriptNum for the given script hash */
         ranges::optional<uint32_t> getScriptHashIndex(const uint160 &scripthash);
         ranges::optional<uint32_t> getScriptHashIndex(const uint256 &scripthash);
+
+        /** Get the scriptNum for the given witness unknown program (Taproot) */
+        ranges::optional<uint32_t> getWitnessUnknownIndex(const uint256 &witnessProgram);
       
         /** Get the tx number for the given transaction hash */
         ranges::optional<uint32_t> getTxIndex(const uint256 &txHash);
@@ -192,6 +198,7 @@ namespace blocksci {
     extern template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::SCRIPTHASH>::IDType>> HashIndex::getAddressRange<AddressType::SCRIPTHASH>();
     extern template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::WITNESS_SCRIPTHASH>::IDType>> HashIndex::getAddressRange<AddressType::WITNESS_SCRIPTHASH>();
     extern template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::MULTISIG>::IDType>> HashIndex::getAddressRange<AddressType::MULTISIG>();
+    extern template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::WITNESS_UNKNOWN>::IDType>> HashIndex::getAddressRange<AddressType::WITNESS_UNKNOWN>();
 }
 
 #endif /* blocksci_index_hash_index_hpp */

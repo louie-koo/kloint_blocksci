@@ -105,7 +105,12 @@ namespace blocksci {
         ranges::any_view<Transaction> getTransactions() const;
         ranges::any_view<Transaction> getOutputTransactions() const;
         ranges::any_view<Transaction> getInputTransactions() const;
-        
+
+        // Eager-loading versions that return vectors (safe for Python bindings)
+        std::vector<Transaction> getInputTransactionsVector() const;
+        std::vector<Transaction> getOutputTransactionsVector() const;
+        std::vector<Transaction> getTransactionsVector() const;
+
         std::string fullType() const;
     };
     

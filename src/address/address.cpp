@@ -30,6 +30,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 
 namespace blocksci {
     
@@ -202,6 +203,60 @@ namespace blocksci {
     ranges::any_view<Transaction> Address::getTransactions() const {
         return AddressAllTxRange{*this, access};
     }
+
+    std::vector<Transaction> Address::getInputTransactionsVector() const {
+        std::vector<Transaction> result;
+        auto _access = access;
+        Address searchAddress = *this;
+        for (auto pointer : getOutputPointers()) {
+            auto spendingTx = Output(pointer, *_access).getSpendingTx();
+            if (spendingTx) {
+                bool found = false;
+                RANGES_FOR(auto input, spendingTx->inputs()) {
+                    if (input.getAddress() == searchAddress) {
+                        if (input.getSpentOutputPointer() == pointer) {
+                            result.push_back(input.transaction());
+                            found = true;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    std::vector<Transaction> Address::getOutputTransactionsVector() const {
+        std::vector<Transaction> result;
+        std::unordered_set<uint32_t> seenTxNums;
+        auto _access = access;
+        for (const auto &pointer : _access->getAddressIndex().getOutputPointers(*this)) {
+            uint32_t txNum = pointer.txNum;
+            if (seenTxNums.find(txNum) == seenTxNums.end()) {
+                seenTxNums.insert(txNum);
+                result.emplace_back(txNum, _access->getChain().getBlockHeight(txNum), *_access);
+            }
+        }
+        return result;
+    }
+
+    std::vector<Transaction> Address::getTransactionsVector() const {
+        std::vector<Transaction> result;
+        std::unordered_set<uint32_t> seenTxNums;
+        for (auto &tx : getInputTransactionsVector()) {
+            if (seenTxNums.find(tx.txNum) == seenTxNums.end()) {
+                seenTxNums.insert(tx.txNum);
+                result.push_back(tx);
+            }
+        }
+        for (auto &tx : getOutputTransactionsVector()) {
+            if (seenTxNums.find(tx.txNum) == seenTxNums.end()) {
+                seenTxNums.insert(tx.txNum);
+                result.push_back(tx);
+            }
+        }
+        return result;
+    }
     
     bool Address::isSpendable() const {
         return blocksci::isSpendable(dedupType(type));
@@ -237,9 +292,10 @@ namespace blocksci {
         if (addressString.compare(0, access.config.chainConfig.segwitPrefix.size(), access.config.chainConfig.segwitPrefix) == 0) {
             std::pair<int, std::vector<uint8_t> > decoded = segwit_addr::decode(access.config.chainConfig.segwitPrefix, addressString);
             if (decoded.first == 0) {
+                // SegWit version 0: P2WPKH or P2WSH
                 if (decoded.second.size() == 20) {
                     uint160 pubkeyHash(decoded.second.begin(), decoded.second.end());
-                    ranges::optional<uint32_t> addressNum = access.getHashIndex().getPubkeyHashIndex(pubkeyHash);
+                    ranges::optional<uint32_t> addressNum = access.getHashIndex().getWitnessPubkeyHashIndex(pubkeyHash);
                     if (addressNum) {
                         return Address{*addressNum, AddressType::WITNESS_PUBKEYHASH, access};
                     }
@@ -249,6 +305,13 @@ namespace blocksci {
                     if (addressNum) {
                         return Address{*addressNum, AddressType::WITNESS_SCRIPTHASH, access};
                     }
+                }
+            } else if (decoded.first == 1 && decoded.second.size() == 32) {
+                // SegWit version 1: Taproot (bc1p...)
+                uint256 witnessProgram(decoded.second.begin(), decoded.second.end());
+                ranges::optional<uint32_t> addressNum = access.getHashIndex().getWitnessUnknownIndex(witnessProgram);
+                if (addressNum) {
+                    return Address{*addressNum, AddressType::WITNESS_UNKNOWN, access};
                 }
             }
             return ranges::nullopt;

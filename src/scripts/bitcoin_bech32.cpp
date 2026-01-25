@@ -40,6 +40,10 @@ const int8_t charset_rev[128] = {
      1,  0,  3, 16, 11, 28, 12, 14,  6,  4,  2, -1, -1, -1, -1, -1
 };
 
+/** Checksum constants for bech32 and bech32m */
+constexpr uint32_t BECH32_CONST = 1;
+constexpr uint32_t BECH32M_CONST = 0x2bc830a3;
+
 /** Concatenate two byte arrays. */
 bech32_data cat(bech32_data x, const bech32_data& y) {
     x.insert(x.end(), y.begin(), y.end());
@@ -79,16 +83,20 @@ bech32_data expand_hrp(const std::string& hrp) {
     return ret;
 }
 
-/** Verify a checksum. */
-bool verify_checksum(const std::string& hrp, const bech32_data& values) {
-    return polymod(cat(expand_hrp(hrp), values)) == 1;
+/** Verify a checksum and determine the encoding. */
+bech32::Encoding verify_checksum(const std::string& hrp, const bech32_data& values) {
+    uint32_t check = polymod(cat(expand_hrp(hrp), values));
+    if (check == BECH32_CONST) return bech32::Encoding::BECH32;
+    if (check == BECH32M_CONST) return bech32::Encoding::BECH32M;
+    return bech32::Encoding::INVALID;
 }
 
 /** Create a checksum. */
-bech32_data create_checksum(const std::string& hrp, const bech32_data& values) {
+bech32_data create_checksum(const std::string& hrp, const bech32_data& values, bech32::Encoding encoding) {
     bech32_data enc = cat(expand_hrp(hrp), values);
     enc.resize(enc.size() + 6);
-    uint32_t mod = polymod(enc) ^ 1;
+    uint32_t target = (encoding == bech32::Encoding::BECH32M) ? BECH32M_CONST : BECH32_CONST;
+    uint32_t mod = polymod(enc) ^ target;
     bech32_data ret;
     ret.resize(6);
     for (size_t i = 0; i < 6; ++i) {
@@ -102,8 +110,8 @@ bech32_data create_checksum(const std::string& hrp, const bech32_data& values) {
 namespace bech32 {
 
 /** Encode a Bech32 string. */
-std::string encode(const std::string& hrp, const bech32_data& values) {
-    bech32_data checksum = create_checksum(hrp, values);
+std::string encode(const std::string& hrp, const bech32_data& values, Encoding encoding) {
+    bech32_data checksum = create_checksum(hrp, values, encoding);
     bech32_data combined = cat(values, checksum);
     std::string ret = hrp + '1';
     ret.reserve(ret.size() + combined.size());
@@ -114,7 +122,7 @@ std::string encode(const std::string& hrp, const bech32_data& values) {
 }
 
 /** Decode a Bech32 string. */
-std::pair<std::string, bech32_data> decode(const std::string& str) {
+std::tuple<std::string, bech32_data, Encoding> decode(const std::string& str) {
     bool lower = false, upper = false;
     bool ok = true;
     for (size_t i = 0; ok && i < str.size(); ++i) {
@@ -138,12 +146,13 @@ std::pair<std::string, bech32_data> decode(const std::string& str) {
             for (size_t i = 0; i < pos; ++i) {
                 hrp += lc(str[i]);
             }
-            if (verify_checksum(hrp, values)) {
-                return std::make_pair(hrp, bech32_data(values.begin(), values.end() - 6));
+            Encoding encoding = verify_checksum(hrp, values);
+            if (encoding != Encoding::INVALID) {
+                return std::make_tuple(hrp, bech32_data(values.begin(), values.end() - 6), encoding);
             }
         }
     }
-    return std::make_pair(std::string(), bech32_data());
+    return std::make_tuple(std::string(), bech32_data(), Encoding::INVALID);
 }
 
 } // namespace bech32

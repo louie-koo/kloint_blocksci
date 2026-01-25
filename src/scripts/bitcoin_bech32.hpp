@@ -29,10 +29,16 @@ namespace blocksci {
 
 namespace bech32 {
 
-/** Encode a Bech32 string. Returns the empty string in case of failure. */
-std::string encode(const std::string& hrp, const std::vector<uint8_t>& values);
+enum class Encoding {
+    BECH32,     // BIP-173: SegWit v0
+    BECH32M,    // BIP-350: SegWit v1+ (Taproot)
+    INVALID
+};
 
-/** Decode a Bech32 string. Returns (hrp, data). Empty hrp means failure. */
-std::pair<std::string, std::vector<uint8_t> > decode(const std::string& str);
+/** Encode a Bech32 string. Returns the empty string in case of failure. */
+std::string encode(const std::string& hrp, const std::vector<uint8_t>& values, Encoding encoding = Encoding::BECH32);
+
+/** Decode a Bech32 string. Returns (hrp, data, encoding). Empty hrp means failure. */
+std::tuple<std::string, std::vector<uint8_t>, Encoding> decode(const std::string& str);
 
 } // namespace bech32

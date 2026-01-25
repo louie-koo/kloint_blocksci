@@ -101,7 +101,7 @@ namespace blocksci {
         static constexpr char name[] = "witness_unknown";
         static constexpr DedupAddressType::Enum dedupType = DedupAddressType::WITNESS_UNKNOWN;
         static constexpr AddressType::Enum exampleType = AddressType::WITNESS_UNKNOWN;
-        using IDType = void;
+        using IDType = uint256;  // For Taproot (32-byte witness program)
     };
     
     template<AddressType::Enum type>

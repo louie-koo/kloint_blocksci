@@ -118,7 +118,11 @@ namespace blocksci {
     ranges::optional<uint32_t> HashIndex::getPubkeyHashIndex(const uint160 &pubkeyhash) {
         return lookupAddress<AddressType::PUBKEYHASH>(pubkeyhash);
     }
-    
+
+    ranges::optional<uint32_t> HashIndex::getWitnessPubkeyHashIndex(const uint160 &pubkeyhash) {
+        return lookupAddress<AddressType::WITNESS_PUBKEYHASH>(pubkeyhash);
+    }
+
     ranges::optional<uint32_t> HashIndex::getScriptHashIndex(const uint160 &scripthash) {
         return lookupAddress<AddressType::SCRIPTHASH>(scripthash);
     }
@@ -126,7 +130,11 @@ namespace blocksci {
     ranges::optional<uint32_t> HashIndex::getScriptHashIndex(const uint256 &scripthash) {
         return lookupAddress<AddressType::WITNESS_SCRIPTHASH>(scripthash);
     }
-    
+
+    ranges::optional<uint32_t> HashIndex::getWitnessUnknownIndex(const uint256 &witnessProgram) {
+        return lookupAddress<AddressType::WITNESS_UNKNOWN>(witnessProgram);
+    }
+
     ranges::optional<uint32_t> HashIndex::getTxIndex(const uint256 &txHash) {
         return getMatch(getTxColumn().get(), txHash);
     }
@@ -160,4 +168,5 @@ namespace blocksci {
     template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::SCRIPTHASH>::IDType>> HashIndex::getAddressRange<AddressType::SCRIPTHASH>();
     template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::WITNESS_SCRIPTHASH>::IDType>> HashIndex::getAddressRange<AddressType::WITNESS_SCRIPTHASH>();
     template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::MULTISIG>::IDType>> HashIndex::getAddressRange<AddressType::MULTISIG>();
+    template ranges::any_view<std::pair<uint32_t, typename blocksci::AddressInfo<AddressType::WITNESS_UNKNOWN>::IDType>> HashIndex::getAddressRange<AddressType::WITNESS_UNKNOWN>();
 }

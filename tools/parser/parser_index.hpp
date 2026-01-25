@@ -66,7 +66,7 @@ public:
     template<typename EquivType>
     void updateScript(std::false_type, EquivType, const blocksci::State &, const blocksci::ScriptAccess &) {}
     
-    void runUpdate(const blocksci::State &state);
+    void runUpdate(const blocksci::State &state, uint32_t maxTxCount = 0);
 };
 
 template <typename T>
@@ -84,26 +84,42 @@ struct ParserScriptUpdater {
 };
 
 template <typename T>
-void ParserIndex<T>::runUpdate(const blocksci::State &state) {
+void ParserIndex<T>::runUpdate(const blocksci::State &state, uint32_t maxTxCount) {
     blocksci::ChainAccess chain{config.dataConfig.chainDirectory(), config.dataConfig.blocksIgnored, config.dataConfig.errorOnReorg};
     blocksci::ScriptAccess scripts{config.dataConfig.scriptsDirectory()};
-    
-    if (latestState.txCount < state.txCount) {
-        auto newCount = state.txCount - latestState.txCount;
+
+    // Determine the target txCount (optionally limited by maxTxCount)
+    uint32_t targetTxCount = state.txCount;
+    if (maxTxCount > 0 && latestState.txCount + maxTxCount < state.txCount) {
+        targetTxCount = latestState.txCount + maxTxCount;
+        std::cout << "Limiting update to " << maxTxCount << " txes (stopping at txNum " << targetTxCount << ")\n";
+    }
+
+    if (latestState.txCount < targetTxCount) {
+        auto newCount = targetTxCount - latestState.txCount;
         std::cout << "Updating index with " << newCount << " txes\n";
         auto progress = blocksci::makeProgressBar(newCount, [=]() {});
         uint32_t num = 0;
-        for (uint32_t txNum = latestState.txCount; txNum < state.txCount; txNum++) {
+        for (uint32_t txNum = latestState.txCount; txNum < targetTxCount; txNum++) {
             auto tx = chain.getTx(txNum);
             static_cast<T*>(this)->processTx(tx, txNum, chain, scripts);
             progress.update(num);
             num++;
         }
     }
-        
-    ParserScriptUpdater<T> updater(*this, state, scripts);
-    blocksci::for_each(blocksci::DedupAddressType::all(), updater);
-    latestState = state;
+
+    // Only update latestState to what we actually processed
+    if (maxTxCount > 0 && targetTxCount < state.txCount) {
+        // Create a partial state with only what we processed
+        blocksci::State partialState = latestState;
+        partialState.txCount = targetTxCount;
+        // Note: scriptCounts are not updated in partial mode
+        latestState = partialState;
+    } else {
+        ParserScriptUpdater<T> updater(*this, state, scripts);
+        blocksci::for_each(blocksci::DedupAddressType::all(), updater);
+        latestState = state;
+    }
 }
 
 #endif /* parser_index_hpp */

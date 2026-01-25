@@ -225,14 +225,14 @@ void updateChain(const ParserConfiguration<ParserTag> &config, blocksci::BlockHe
     }
 }
 
-void updateHashDB(const ParserConfigurationBase &config, HashIndexCreator &db) {
+void updateHashDB(const ParserConfigurationBase &config, HashIndexCreator &db, uint32_t maxTxCount = 0) {
     blocksci::ChainAccess chain{config.dataConfig.chainDirectory(), config.dataConfig.blocksIgnored, config.dataConfig.errorOnReorg};
     blocksci::ScriptAccess scripts{config.dataConfig.scriptsDirectory()};
-    
+
     blocksci::State updateState{chain, scripts};
     std::cout << "Updating hash index\n";
-    
-    db.runUpdate(updateState);
+
+    db.runUpdate(updateState, maxTxCount);
 }
 
 void updateAddressDB(const ParserConfigurationBase &config) {
@@ -357,7 +357,11 @@ int main(int argc, char * argv[]) {
     auto updateCoreCommand = clipp::command("core-update").set(selected,mode::updateCore) % "Update just the core BlockSci data (excluding indexes)";
     auto indexUpdateCommand = clipp::command("index-update").set(selected,mode::updateIndexes) % "Update indexes to latest chain state";
     auto addressIndexUpdateCommand = clipp::command("address-index-update").set(selected,mode::updateAddressIndex) % "Update address index to latest state";
-    auto hashIndexUpdateCommand = clipp::command("hash-index-update").set(selected,mode::updateHashIndex) % "Update hash index to latest state";
+    uint32_t hashIndexMaxTx = 0;
+    auto hashIndexUpdateCommand = (
+        clipp::command("hash-index-update").set(selected,mode::updateHashIndex) % "Update hash index to latest state",
+        (clipp::option("--max-tx") & clipp::value("max tx count", hashIndexMaxTx)) % "Limit number of transactions to process (for testing)"
+    );
     auto compactIndexesCommand = clipp::command("compact-indexes").set(selected, mode::compactIndexes) % "Compact indexes to speed up blockchain construction";
     auto doctorCommand = clipp::command("doctor").set(selected,mode::doctor) % "Diagnose issues with BlockSci or the provided config file.";
     
@@ -523,7 +527,7 @@ int main(int argc, char * argv[]) {
             auto config = getBaseConfig(configFilePath);
             lockDataDirectory(config);
             HashIndexCreator db(config, config.dataConfig.hashIndexFilePath());
-            updateHashDB(config, db);
+            updateHashDB(config, db, hashIndexMaxTx);
             unlockDataDirectory(config);
             break;
         }
