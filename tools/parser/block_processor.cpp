@@ -33,6 +33,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <memory>
 #include <thread>
 #include <list>
 
@@ -445,36 +446,40 @@ std::vector<std::function<void(RawTransaction &tx)>> SerializeAddressesStep::ste
 
 void backUpdateTxes(const ParserConfigurationBase &config) {
     std::vector<OutputLinkData> updates;
-    
+
     std::cout << "Updating spent outputs" << std::endl;
-    
+
     {
         blocksci::FixedSizeFileMapper<OutputLinkData> linkDataFile(config.txUpdatesFilePath());
         updates.reserve(static_cast<size_t>(linkDataFile.size()));
-        
+
         for (uint32_t i = 0; i < linkDataFile.size(); i++) {
             updates.push_back(*linkDataFile[i]);
         }
-        
+
         std::sort(updates.begin(), updates.end(), [](const auto& a, const auto& b) {
             return a.pointer < b.pointer;
         });
     }
-    
+
     {
         blocksci::IndexedFileMapper<mio::access_mode::write, blocksci::RawTransaction> txFile(blocksci::ChainAccess::txFilePath(config.dataConfig.chainDirectory()));
         auto progressBar = blocksci::makeProgressBar(updates.size(), [=]() {});
-        
+
         uint32_t count = 0;
         for (auto &update : updates) {
             auto tx = txFile.getData(update.pointer.txNum);
             auto &output = tx->getOutput(update.pointer.inoutNum);
             // Set the forward-reference to the tx number of the tx that contains the spending input
             output.setLinkedTxNum(update.txNum);
-            
+
             count++;
             progressBar.update(count);
         }
+
+        // Explicitly flush TX file buffer to disk before removing the updates file
+        // This ensures TX modifications are persisted even if the parser is interrupted
+        txFile.clearBuffer();
     }
     filesystem::path{config.txUpdatesFilePath() + ".dat"}.remove_file();
 }
@@ -907,9 +912,12 @@ std::vector<blocksci::RawBlock> BlockProcessor::addNewBlocks(const ParserConfigu
     });
     
     int64_t nextWaitCount = 0;
-    
+
     std::vector<blocksci::RawBlock> blocksAdded;
     BlockFileReader<ParseTag> fileReader(config, blocks, currentTxNum);
+
+    // Shared pointer to NewBlocksFiles so we can flush after processing completes
+    std::shared_ptr<NewBlocksFiles> filesPtr;
 
     // Launch the importer in its own thread
     auto importer = std::async(std::launch::async, [&] {
@@ -917,7 +925,7 @@ std::vector<blocksci::RawBlock> BlockProcessor::addNewBlocks(const ParserConfigu
         auto loadFinishedTx = [&](RawTransaction *&tx) {
             return processQueue.finishedQueue.pop(tx);
         };
-        
+
         // Function that adds transaction to the first queue of the processing pipeline
         auto outFunc = [&](RawTransaction *tx) {
             using namespace std::chrono_literals;
@@ -931,8 +939,9 @@ std::vector<blocksci::RawBlock> BlockProcessor::addNewBlocks(const ParserConfigu
                 std::this_thread::sleep_for(5ms);
             }
         };
-        
-        NewBlocksFiles files(config);
+
+        filesPtr = std::make_shared<NewBlocksFiles>(config);
+        NewBlocksFiles &files = *filesPtr;
 
         // Call readNewBlock for every block, which triggers the processing pipeline for every transaction
         for (auto &block : blocks) {
@@ -953,6 +962,16 @@ std::vector<blocksci::RawBlock> BlockProcessor::addNewBlocks(const ParserConfigu
     // Wait for all processing step threads to complete
     importer.get();
     processQueue.waitForComplete();
+
+    // Flush all file buffers to ensure data persistence before returning
+    // This is critical for checkpoint integrity - if the parser is interrupted after this function
+    // returns but before state is serialized, the TX data must be on disk
+    txFile.flush();
+    txHashFile.flush();
+    linkDataFile.flush();
+    if (filesPtr) {
+        filesPtr->flush();
+    }
 
     return blocksAdded;
 }

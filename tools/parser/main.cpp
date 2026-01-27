@@ -85,9 +85,66 @@ struct ChainUpdateInfo {
     uint32_t splitPoint;
 };
 
+/** Verify data integrity between block metadata and TX files.
+ *  Returns true if data is consistent, false if corruption is detected.
+ */
+bool verifyChainIntegrity(const ParserConfigurationBase &config) {
+    blocksci::ChainAccess chain{config.dataConfig.chainDirectory(), 0, false};
+
+    auto blockCount = chain.blockCount();
+    if (blockCount == blocksci::BlockHeight{0}) {
+        return true;  // Empty chain is valid
+    }
+
+    // Get the last block's expected TX count
+    auto lastBlock = chain.getBlock(blockCount - blocksci::BlockHeight{1});
+    uint32_t expectedTxCount = lastBlock->firstTxIndex + lastBlock->txCount;
+    uint32_t actualTxCount = static_cast<uint32_t>(chain.txCount());
+
+    if (expectedTxCount != actualTxCount) {
+        std::cerr << "INTEGRITY ERROR: Block metadata expects " << expectedTxCount
+                  << " transactions, but TX file contains " << actualTxCount << " transactions." << std::endl;
+        std::cerr << "Last block height: " << lastBlock->height
+                  << ", firstTxIndex: " << lastBlock->firstTxIndex
+                  << ", txCount: " << lastBlock->txCount << std::endl;
+        return false;
+    }
+
+    // Verify firstTxIndex continuity for the last few blocks
+    if (blockCount > blocksci::BlockHeight{1}) {
+        uint32_t prevEndTx = 0;
+        for (blocksci::BlockHeight h{0}; h < std::min(blockCount, blocksci::BlockHeight{100}); ++h) {
+            auto block = chain.getBlock(h);
+            if (block->firstTxIndex != prevEndTx) {
+                std::cerr << "INTEGRITY ERROR: Block " << static_cast<int>(h)
+                          << " has firstTxIndex=" << block->firstTxIndex
+                          << " but expected " << prevEndTx << std::endl;
+                return false;
+            }
+            prevEndTx = block->firstTxIndex + block->txCount;
+        }
+    }
+
+    std::cout << "Chain integrity check passed: " << actualTxCount << " transactions in "
+              << static_cast<int>(blockCount) << " blocks" << std::endl;
+    return true;
+}
+
 template <typename ParserTag>
 void updateChain(const ParserConfiguration<ParserTag> &config, blocksci::BlockHeight maxBlockNum, HashIndexCreator &hashDb) {
     using namespace std::chrono_literals;
+
+    // Verify chain integrity before starting
+    if (!verifyChainIntegrity(config)) {
+        std::cerr << "\n*** CHAIN DATA CORRUPTION DETECTED ***" << std::endl;
+        std::cerr << "TX data and block metadata are out of sync." << std::endl;
+        std::cerr << "This typically happens when a previous parse was interrupted." << std::endl;
+        std::cerr << "\nRecommended action: Delete the data directory and reparse from scratch." << std::endl;
+        std::cerr << "Example:" << std::endl;
+        std::cerr << "  rm -rf " << config.dataConfig.chainConfig.dataDirectory << std::endl;
+        std::cerr << "  blocksci_parser <config> update" << std::endl;
+        exit(1);
+    }
 
     /* Load and update the persisted (serialized) ChainIndex object that contains information about all blocks (without transaction data)
      * Generate the ChainIndex if no data is available on disk.
@@ -136,10 +193,10 @@ void updateChain(const ParserConfiguration<ParserTag> &config, blocksci::BlockHe
             std::cout << "Previously parsed chain is on a different fork than the longest chain. You may need to reparse. Aborting." << std::endl;
             exit(1);
         }
-        
+
         std::cout << "Starting with chain of " << oldChain.blockCount() << " blocks" << std::endl;
         std::cout << "Adding " << static_cast<blocksci::BlockHeight>(chainBlocks.size()) - splitPoint << " blocks" << std::endl;
-        
+
         return splitPoint;
     }();
 
@@ -208,18 +265,35 @@ void updateChain(const ParserConfiguration<ParserTag> &config, blocksci::BlockHe
         blockFile.flush();
 
         // This step represents the "Back linking transactions" step of the parser output messages.
+        // backUpdateTxes modifies TX files and flushes them internally
         backUpdateTxes(config);
 
-        // Serialize state after each batch (checkpoint)
-        utxoAddressState.serialize(config.utxoAddressStatePath().str());
-        utxoState.serialize(config.utxoCacheFile().str());
-        utxoScriptState.serialize(config.utxoScriptStatePath().str());
+        // Serialize state atomically after each batch (checkpoint)
+        // Use temp file + rename pattern to ensure atomicity
+        auto serializeAtomically = [](auto &state, const std::string &path) {
+            std::string tempPath = path + ".tmp";
+            state.serialize(tempPath);
+            // Atomic rename (POSIX guarantees atomicity for rename)
+            if (std::rename(tempPath.c_str(), path.c_str()) != 0) {
+                throw std::runtime_error("Failed to atomically save state file: " + path);
+            }
+        };
 
-        // Save ChainIndex after each batch
+        serializeAtomically(utxoAddressState, config.utxoAddressStatePath().str());
+        serializeAtomically(utxoState, config.utxoCacheFile().str());
+        serializeAtomically(utxoScriptState, config.utxoScriptStatePath().str());
+
+        // Save ChainIndex atomically after each batch
         {
-            std::ofstream of(config.blockListPath().str(), std::ios::binary);
-            cereal::BinaryOutputArchive oa(of);
-            oa(chainIndex);
+            std::string tempPath = config.blockListPath().str() + ".tmp";
+            {
+                std::ofstream of(tempPath, std::ios::binary);
+                cereal::BinaryOutputArchive oa(of);
+                oa(chainIndex);
+            }
+            if (std::rename(tempPath.c_str(), config.blockListPath().str().c_str()) != 0) {
+                throw std::runtime_error("Failed to atomically save chain index");
+            }
         }
 
         std::cout << "Checkpoint saved at block " << blocks.back().height << std::endl;

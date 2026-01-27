@@ -35,8 +35,18 @@ struct NewBlocksFiles {
     FixedSizeFileWriter<int32_t> txVersionFile;
     FixedSizeFileWriter<uint16_t> inputSpentOutNumFile;
     FixedSizeFileWriter<uint32_t> inputSequenceFile;
-    
+
     NewBlocksFiles(const ParserConfigurationBase &config);
+
+    /** Flush all file buffers to disk to ensure data persistence */
+    void flush() {
+        blockCoinbaseFile.flush();
+        txFirstInput.flush();
+        txFirstOutput.flush();
+        txVersionFile.flush();
+        inputSpentOutNumFile.flush();
+        inputSequenceFile.flush();
+    }
 };
 
 struct OutputLinkData {
